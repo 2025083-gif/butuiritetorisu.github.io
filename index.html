@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PHYSICS TETRIS 2026</title>
+    <!-- 物理エンジン Matter.js を読み込み -->
+    <script src="https://cdnjs.cloudflare.com"></script>
+    <style>
+        body {
+            margin: 0; padding: 0;
+            background: radial-gradient(circle, #1a1a2e 0%, #0f0f1b 100%);
+            color: #4fc3f7;
+            font-family: 'Segoe UI', sans-serif;
+            display: flex; flex-direction: column; align-items: center;
+            overflow: hidden; height: 100vh;
+        }
+        #game-container {
+            position: relative; margin-top: 20px;
+            box-shadow: 0 0 50px rgba(0, 191, 255, 0.3);
+            border: 2px solid #4fc3f7;
+            border-radius: 8px;
+        }
+        canvas { display: block; border-radius: 4px; }
+        .ui-panel {
+            position: absolute; top: 0; right: -160px;
+            width: 140px; text-align: left;
+            background: rgba(26, 26, 46, 0.8);
+            padding: 15px; border-radius: 8px; border: 1px solid #4fc3f7;
+        }
+        .hold-panel {
+            position: absolute; top: 0; left: -160px;
+            width: 140px; background: rgba(26, 26, 46, 0.8);
+            padding: 15px; border-radius: 8px; border: 1px solid #4fc3f7;
+            text-align: center;
+        }
+        h1 { font-size: 24px; letter-spacing: 4px; text-shadow: 0 0 10px #4fc3f7; }
+        .controls { margin-top: 10px; color: #aaa; font-size: 13px; }
+        .label { font-size: 12px; color: #888; text-transform: uppercase; }
+        .val { font-size: 20px; font-weight: bold; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+    <h1>PHYSICS TETRIS</h1>
+
+    <div id="game-container">
+        <div class="hold-panel">
+            <div class="label">Hold (C)</div>
+            <div id="hold-val" class="val">EMPTY</div>
+        </div>
+        <div class="ui-panel">
+            <div class="label">Score</div>
+            <div id="score" class="val">0</div>
+            <div class="label">Next</div>
+            <div id="next-val" class="val">...</div>
+        </div>
+    </div>
+
+    <div class="controls">
+        W: 回転 | A/D: 左右移動 | S: 下降 | Space: 落下 | C: ホールド
+    </div>
+
+<script>
+const { Engine, Render, Runner, World, Bodies, Body, Events, Composite } = Matter;
+
+// --- 設定 ---
+const WIDTH = 360;
+const HEIGHT = 600;
+const BLOCK_SIZE = 30;
+const COLORS = {
+    I: '#00f0f0', J: '#0000f0', L: '#f0a000',
+    O: '#f0f000', S: '#00f000', T: '#a000f0', Z: '#f00000'
+};
+const SHAPES = {
+    I: [[1,1,1,1]],
+    J: [[1,0,0],[1,1,1]],
+    L: [[0,0,1],[1,1,1]],
+    O: [[1,1],[1,1]],
+    S: [[0,1,1],[1,1,0]],
+    T: [[0,1,0],[1,1,1]],
+    Z: [[1,1,0],[0,1,1]]
+};
+
+// --- 初期化 ---
+let engine = Engine.create();
+let render = Render.create({
+    element: document.getElementById('game-container'),
+    engine: engine,
+    options: {
+        width: WIDTH,
+        height: HEIGHT,
+        wireframes: false,
+        background: 'transparent'
+    }
+});
+
+// 壁の作成
+const ground = Bodies.rectangle(WIDTH/2, HEIGHT + 25, WIDTH, 50, { isStatic: true, friction: 0.5 });
+const leftWall = Bodies.rectangle(-25, HEIGHT/2, 50, HEIGHT, { isStatic: true });
+const rightWall = Bodies.rectangle(WIDTH + 25, HEIGHT/2, 50, HEIGHT, { isStatic: true });
+World.add(engine.world, [ground, leftWall, rightWall]);
+
+Render.run(render);
+Runner.run(Runner.create(), engine);
+
+// --- ゲーム変数 ---
+let currentPiece = null;
+let nextType = 'I';
+let holdType = null;
+let canHold = true;
+let score = 0;
+
+// ミノ生成
+function createTetromino(x, y, type) {
+    const shape = SHAPES[type];
+    const color = COLORS[type];
+    const parts = [];
+    
+    shape.forEach((row, i) => {
+        row.forEach((cell, j) => {
+            if (cell) {
+                parts.push(Bodies.rectangle(
+                    x + j * BLOCK_SIZE,
+                    y + i * BLOCK_SIZE,
+                    BLOCK_SIZE, BLOCK_SIZE,
+                    {
+                        render: {
+                            fillStyle: color,
+                            strokeStyle: '#fff',
+                            lineWidth: 1
+                        },
+                        friction: 0.3,
+                        restitution: 0.1
+                    }
+                ));
+            }
+        });
+    });
+    
+    const body = Body.create({ parts, friction: 0.3 });
+    body.typeLabel = type;
+    return body;
+}
+
+function spawn() {
+    const types = Object.keys(SHAPES);
+    const type = nextType;
+    nextType = types[Math.floor(Math.random() * types.length)];
+    document.getElementById('next-val').innerText = nextType;
+    
+    currentPiece = createTetromino(WIDTH / 2 - BLOCK_SIZE, 50, type);
+    World.add(engine.world, currentPiece);
+    canHold = true;
+}
+
+// --- 操作 ---
+window.addEventListener('keydown', e => {
+    if (!currentPiece) return;
+    
+    const code = e.code;
+    const pos = currentPiece.position;
+
+    if (code === 'KeyA') Body.translate(currentPiece, { x: -25, y: 0 });
+    if (code === 'KeyD') Body.translate(currentPiece, { x: 25, y: 0 });
+    if (code === 'KeyS') Body.translate(currentPiece, { x: 0, y: 15 });
+    if (code === 'KeyW') Body.rotate(currentPiece, Math.PI / 2);
+    if (code === 'Space') Body.applyForce(currentPiece, pos, { x: 0, y: 0.5 });
+    
+    // ホールド機能
+    if (code === 'KeyC' && canHold) {
+        const typeToHold = currentPiece.typeLabel;
+        World.remove(engine.world, currentPiece);
+        
+        if (holdType === null) {
+            holdType = typeToHold;
+            spawn();
+        } else {
+            const temp = holdType;
+            holdType = typeToHold;
+            currentPiece = createTetromino(WIDTH / 2 - BLOCK_SIZE, 50, temp);
+            World.add(engine.world, currentPiece);
+        }
+        document.getElementById('hold-val').innerText = holdType;
+        canHold = false;
+    }
+});
+
+// 定期的に新しいミノを投下（着地判定は簡易的に時間で処理）
+setInterval(() => {
+    if (currentPiece && currentPiece.speed < 0.1 && currentPiece.position.y > 100) {
+        score += 10;
+        document.getElementById('score').innerText = score;
+        spawn();
+    }
+}, 2000);
+
+// 初回起動
+nextType = Object.keys(SHAPES)[Math.floor(Math.random() * 7)];
+spawn();
+
+</script>
+</body>
+</html>
